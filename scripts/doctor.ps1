@@ -87,6 +87,28 @@ function Test-FeishuDocOutput {
   }
 
   Info "feishuDocOutput is enabled; checking Docs prerequisites without creating a document."
+
+  $mode = if ($Config.feishuDocOutput.mode) { [string]$Config.feishuDocOutput.mode } else { "on_demand" }
+  $validModes = @("off", "always", "on_demand")
+  if ($validModes -contains $mode) {
+    Pass "feishuDocOutput.mode is valid: $mode"
+  } else {
+    Fail "feishuDocOutput.mode must be one of: off, always, on_demand. Got: '$mode'"
+  }
+
+  if ($mode -eq "on_demand") {
+    $keywords = $Config.feishuDocOutput.triggerKeywords
+    if ($keywords -and $keywords.Count -gt 0) {
+      Pass "feishuDocOutput.triggerKeywords is non-empty: $($keywords -join ', ')"
+    } else {
+      Warn "feishuDocOutput.triggerKeywords is empty; on_demand mode will use built-in defaults (飞书文档, 云文档, 生成文档, 创建文档, 上传飞书, doc, docs)"
+    }
+  }
+
+  if ($mode -eq "off") {
+    Info "feishuDocOutput.mode is 'off'; no Feishu/Lark document will ever be created even though feishuDocOutput.enabled = true."
+  }
+
   $as = if ($Config.feishuDocOutput.as) { [string]$Config.feishuDocOutput.as } else { "user" }
   if ($as -ne "user" -and $as -ne "bot") {
     Fail "feishuDocOutput.as must be 'user' or 'bot'."

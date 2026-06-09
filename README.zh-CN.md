@@ -71,7 +71,32 @@ Codex 不再作为定时 heartbeat 巡检器使用。`runner.js` 是普通 Node.
 
 ## 可选：自动创建飞书云文档
 
-当 `feishuDocOutput.enabled` 设置为 `true` 时，runner 可以把 Codex 生成的 Markdown 结果自动创建为飞书 / Lark 云文档，并在飞书消息中返回可预览、可编辑的文档链接。
+飞书云文档输出支持三种模式：
+
+- `off`：从不创建文档。
+- `always`：每个完成的任务都创建文档。
+- `on_demand`：只有用户指令中提到关键词时才创建文档。
+
+默认触发关键词：`飞书文档`、`云文档`、`生成文档`、`创建文档`、`上传飞书`、`doc`、`docs`。
+
+触发文档创建的指令示例：
+
+```text
+codex: 帮我整理这个目录，并生成飞书文档
+codex: 总结这份 Markdown，上传飞书文档
+```
+
+在 `bridge.config.json` 中配置：
+
+```json
+"feishuDocOutput": {
+  "enabled": true,
+  "mode": "on_demand",
+  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+  "as": "user",
+  "parentPosition": "my_library"
+}
+```
 
 该功能需要有效的 `lark-cli` 授权和飞书 Docs 相关权限。如果文档创建失败，Codex 任务仍保持 `completed`；失败信息会写入 result JSON 的 `feishuDoc.status = "failed"`，飞书回复也会提示“本地结果已生成，但飞书文档创建失败”。
 
@@ -126,6 +151,8 @@ Copy-Item bridge.config.example.json bridge.config.json
   "runnerScanIntervalSeconds": 10,
   "feishuDocOutput": {
     "enabled": false,
+    "mode": "on_demand",
+    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
     "as": "user",
     "apiVersion": "v2",
     "docFormat": "markdown",

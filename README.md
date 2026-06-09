@@ -71,7 +71,32 @@ Only messages from allowed senders and matching one of these prefixes are queued
 
 ## Optional Feishu Docs output
 
-When `feishuDocOutput.enabled` is set to `true`, the runner can create a Feishu/Lark cloud document from the Codex Markdown result and reply with the editable document URL.
+Feishu Docs output supports three modes:
+
+- `off`: never create docs.
+- `always`: create docs for every completed task.
+- `on_demand`: create docs only when the instruction mentions configured trigger keywords.
+
+Default trigger keywords: `飞书文档`, `云文档`, `生成文档`, `创建文档`, `上传飞书`, `doc`, `docs`.
+
+Example instructions that trigger doc creation:
+
+```text
+codex: summarize this folder and create a Feishu doc
+codex: Create a docs page for this result
+```
+
+Configure in `bridge.config.json`:
+
+```json
+"feishuDocOutput": {
+  "enabled": true,
+  "mode": "on_demand",
+  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+  "as": "user",
+  "parentPosition": "my_library"
+}
+```
 
 This requires valid `lark-cli` authentication and Docs permissions. If document creation fails, the Codex task still remains `completed`; the failure is recorded under `feishuDoc.status = "failed"` in the result JSON and the Feishu/Lark reply explains that the local result was still generated.
 
@@ -126,6 +151,8 @@ The private `bridge.config.json` should define at least:
   "runnerScanIntervalSeconds": 10,
   "feishuDocOutput": {
     "enabled": false,
+    "mode": "on_demand",
+    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
     "as": "user",
     "apiVersion": "v2",
     "docFormat": "markdown",

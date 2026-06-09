@@ -20,6 +20,8 @@
   "runnerScanIntervalSeconds": 10,
   "feishuDocOutput": {
     "enabled": false,
+    "mode": "on_demand",
+    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
     "as": "user",
     "apiVersion": "v2",
     "docFormat": "markdown",

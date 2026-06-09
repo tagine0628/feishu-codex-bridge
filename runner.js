@@ -267,8 +267,15 @@ function summaryFromResult(resultMdPath, fallback) {
 
 function feishuDocOutputConfig() {
   const cfg = config.feishuDocOutput || {};
+  const mode = String(cfg.mode || "on_demand").trim();
+  const validModes = ["off", "always", "on_demand"];
+  if (!validModes.includes(mode)) {
+    appendLog(`feishuDocOutput.mode "${mode}" is invalid; falling back to on_demand`);
+  }
   return {
     enabled: cfg.enabled === true,
+    mode: validModes.includes(mode) ? mode : "on_demand",
+    triggerKeywords: Array.isArray(cfg.triggerKeywords) ? cfg.triggerKeywords.filter(Boolean) : [],
     as: cfg.as || "user",
     apiVersion: cfg.apiVersion || "v2",
     docFormat: cfg.docFormat || "markdown",
@@ -278,8 +285,20 @@ function feishuDocOutputConfig() {
   };
 }
 
-function shouldCreateFeishuDoc() {
-  return feishuDocOutputConfig().enabled;
+function shouldCreateFeishuDocForTask(task) {
+  const cfg = feishuDocOutputConfig();
+  if (!cfg.enabled) return false;
+
+  if (cfg.mode === "off") return false;
+  if (cfg.mode === "always") return true;
+
+  // mode === "on_demand" (or unrecognized, already normalised in feishuDocOutputConfig)
+  const instruction = String(task.instruction || "").toLowerCase();
+  const keywords = cfg.triggerKeywords.length > 0
+    ? cfg.triggerKeywords
+    : ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"];
+
+  return keywords.some((keyword) => instruction.includes(keyword.toLowerCase()));
 }
 
 function readTextIfExists(filePath) {
@@ -398,7 +417,7 @@ function extractFeishuDocUrl(larkResult) {
 
 async function createFeishuDocForTask(task, resultMdPath, summary) {
   const cfg = feishuDocOutputConfig();
-  if (!cfg.enabled) return { enabled: false };
+  if (!cfg.enabled) return { enabled: false, status: "disabled" };
 
   try {
     const markdownContent = buildFeishuDocMarkdown(task, resultMdPath, summary);
@@ -406,6 +425,7 @@ async function createFeishuDocForTask(task, resultMdPath, summary) {
     if (larkResult.code !== 0) {
       return {
         enabled: true,
+        mode: cfg.mode,
         status: "failed",
         error: String(larkResult.stderr || larkResult.stdout || `lark-cli exited with code ${larkResult.code}`).slice(0, 2000),
         as: cfg.as
@@ -415,6 +435,7 @@ async function createFeishuDocForTask(task, resultMdPath, summary) {
     const extracted = extractFeishuDocUrl(larkResult);
     return {
       enabled: true,
+      mode: cfg.mode,
       status: "created",
       url: extracted.url,
       documentId: extracted.documentId,
@@ -423,6 +444,7 @@ async function createFeishuDocForTask(task, resultMdPath, summary) {
   } catch (error) {
     return {
       enabled: true,
+      mode: cfg.mode,
       status: "failed",
       error: String(error.stack || error).slice(0, 2000),
       as: cfg.as
@@ -488,9 +510,12 @@ async function processTask(taskPath) {
   const endedAt = new Date().toISOString();
   const completed = execution.code === 0;
   const summary = summaryFromResult(resultMdPath, execution.stderr || execution.stdout);
+  const cfg = feishuDocOutputConfig();
   const feishuDoc = completed
-    ? await createFeishuDocForTask(task, resultMdPath, summary)
-    : { enabled: shouldCreateFeishuDoc(), status: "skipped" };
+    ? (shouldCreateFeishuDocForTask(task)
+        ? await createFeishuDocForTask(task, resultMdPath, summary)
+        : { enabled: cfg.enabled, mode: cfg.mode, status: "not_requested" })
+    : { enabled: cfg.enabled, status: "skipped" };
 
   task.status = completed ? "completed" : "failed";
   task.endedAt = endedAt;
