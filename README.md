@@ -1,4 +1,5 @@
-﻿# Feishu Codex Bridge
+﻿[中文文档](./README.zh-CN.md)
+# Feishu Codex Bridge
 
 A local bridge that connects Feishu/Lark bot messages to Codex CLI through an event-triggered queue runner.
 
