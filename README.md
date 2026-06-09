@@ -77,7 +77,7 @@ Feishu Docs output supports three modes:
 - `always`: create docs for every completed task.
 - `on_demand`: create docs only when the instruction mentions configured trigger keywords.
 
-Default trigger keywords: `飞书文档`, `云文档`, `生成文档`, `创建文档`, `上传飞书`, `doc`, `docs`.
+Default trigger keywords: `飞书文档`, `云文档`, `生成文档`, `创建文档`, `上传飞书`, `Feishu doc`, `Feishu docs`, `doc`, `docs`.
 
 Example instructions that trigger doc creation:
 
@@ -92,7 +92,7 @@ Configure in `bridge.config.json`:
 "feishuDocOutput": {
   "enabled": true,
   "mode": "on_demand",
-  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "Feishu doc", "Feishu docs", "doc", "docs"],
   "as": "user",
   "parentPosition": "my_library"
 }
@@ -152,7 +152,7 @@ The private `bridge.config.json` should define at least:
   "feishuDocOutput": {
     "enabled": false,
     "mode": "on_demand",
-    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "Feishu doc", "Feishu docs", "doc", "docs"],
     "as": "user",
     "apiVersion": "v2",
     "docFormat": "markdown",

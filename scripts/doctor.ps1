@@ -103,6 +103,7 @@ function Test-FeishuDocOutput {
     } else {
       Warn "feishuDocOutput.triggerKeywords is empty; on_demand mode will use built-in defaults (飞书文档, 云文档, 生成文档, 创建文档, 上传飞书, doc, docs)"
     }
+    Info "on_demand mode: a Feishu/Lark document will only be created when the user instruction contains one of the trigger keywords."
   }
 
   if ($mode -eq "off") {

@@ -77,7 +77,7 @@ Codex 不再作为定时 heartbeat 巡检器使用。`runner.js` 是普通 Node.
 - `always`：每个完成的任务都创建文档。
 - `on_demand`：只有用户指令中提到关键词时才创建文档。
 
-默认触发关键词：`飞书文档`、`云文档`、`生成文档`、`创建文档`、`上传飞书`、`doc`、`docs`。
+默认触发关键词：`飞书文档`、`云文档`、`生成文档`、`创建文档`、`上传飞书`、`Feishu doc`、`Feishu docs`、`doc`、`docs`。
 
 触发文档创建的指令示例：
 
@@ -92,7 +92,7 @@ codex: 总结这份 Markdown，上传飞书文档
 "feishuDocOutput": {
   "enabled": true,
   "mode": "on_demand",
-  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+  "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "Feishu doc", "Feishu docs", "doc", "docs"],
   "as": "user",
   "parentPosition": "my_library"
 }
@@ -152,7 +152,7 @@ Copy-Item bridge.config.example.json bridge.config.json
   "feishuDocOutput": {
     "enabled": false,
     "mode": "on_demand",
-    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"],
+    "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "Feishu doc", "Feishu docs", "doc", "docs"],
     "as": "user",
     "apiVersion": "v2",
     "docFormat": "markdown",

@@ -287,18 +287,44 @@ function feishuDocOutputConfig() {
 
 function shouldCreateFeishuDocForTask(task) {
   const cfg = feishuDocOutputConfig();
-  if (!cfg.enabled) return false;
 
-  if (cfg.mode === "off") return false;
-  if (cfg.mode === "always") return true;
+  if (!cfg.enabled) {
+    return { create: false, status: "disabled", mode: cfg.mode || "on_demand" };
+  }
 
-  // mode === "on_demand" (or unrecognized, already normalised in feishuDocOutputConfig)
-  const instruction = String(task.instruction || "").toLowerCase();
-  const keywords = cfg.triggerKeywords.length > 0
+  const mode = String(cfg.mode || "on_demand").toLowerCase();
+
+  if (mode === "off") {
+    return { create: false, status: "disabled", mode };
+  }
+
+  if (mode === "always") {
+    return { create: true, status: "requested", mode };
+  }
+
+  // default: on_demand
+  const instruction = String(task.instruction || "");
+  const lowerInstruction = instruction.toLowerCase();
+  const keywords = Array.isArray(cfg.triggerKeywords) && cfg.triggerKeywords.length > 0
     ? cfg.triggerKeywords
     : ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "doc", "docs"];
 
-  return keywords.some((keyword) => instruction.includes(keyword.toLowerCase()));
+  const matched = keywords.some((kw) => {
+    const keyword = String(kw || "").trim();
+    if (!keyword) return false;
+    // English/ASCII keywords: case-insensitive match against lowercased instruction
+    if (/^[\x00-\x7F]+$/.test(keyword)) {
+      return lowerInstruction.includes(keyword.toLowerCase());
+    }
+    // Non-ASCII keywords (e.g. Chinese): direct match against original instruction
+    return instruction.includes(keyword);
+  });
+
+  return {
+    create: matched,
+    status: matched ? "requested" : "not_requested",
+    mode: "on_demand"
+  };
 }
 
 function readTextIfExists(filePath) {
@@ -510,12 +536,17 @@ async function processTask(taskPath) {
   const endedAt = new Date().toISOString();
   const completed = execution.code === 0;
   const summary = summaryFromResult(resultMdPath, execution.stderr || execution.stdout);
-  const cfg = feishuDocOutputConfig();
-  const feishuDoc = completed
-    ? (shouldCreateFeishuDocForTask(task)
-        ? await createFeishuDocForTask(task, resultMdPath, summary)
-        : { enabled: cfg.enabled, mode: cfg.mode, status: "not_requested" })
-    : { enabled: cfg.enabled, status: "skipped" };
+  const docDecision = completed
+    ? shouldCreateFeishuDocForTask(task)
+    : { create: false, status: "skipped", mode: feishuDocOutputConfig().mode || "on_demand" };
+
+  const feishuDoc = completed && docDecision.create
+    ? await createFeishuDocForTask(task, resultMdPath, summary)
+    : {
+        enabled: feishuDocOutputConfig().enabled,
+        mode: docDecision.mode,
+        status: docDecision.status
+      };
 
   task.status = completed ? "completed" : "failed";
   task.endedAt = endedAt;
