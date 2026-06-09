@@ -4,7 +4,7 @@ const path = require("node:path");
 
 const root = __dirname;
 const configPath = path.join(root, "bridge.config.json");
-const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+const config = JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
 const larkCliExe = config.larkCliPath || "lark-cli";
 const codexCliExe = config.codexCliPath || "codex";
 const maxConcurrency = Math.max(1, Number(config.maxConcurrency || 1));
@@ -30,7 +30,10 @@ function appendLog(line) {
 function bridgeEnv() {
   const env = { ...process.env };
   const currentPath = env.Path || env.PATH || "";
-  const pathEntries = [currentPath]; if (path.isAbsolute(larkCliExe)) pathEntries.push(path.dirname(larkCliExe)); if (path.isAbsolute(codexCliExe)) pathEntries.push(path.dirname(codexCliExe)); env.Path = pathEntries.filter(Boolean).join(";");
+  const pathEntries = [currentPath];
+  if (path.isAbsolute(larkCliExe)) pathEntries.push(path.dirname(larkCliExe));
+  if (path.isAbsolute(codexCliExe)) pathEntries.push(path.dirname(codexCliExe));
+  env.Path = pathEntries.filter(Boolean).join(";");
   delete env.PATH;
   env.LARK_CLI_NO_PROXY = "1";
   env.LANG = "zh_CN.UTF-8";
@@ -85,7 +88,7 @@ function isAllowedWorkspace(workspace) {
 }
 
 function hasOutOfScopeAbsolutePath(instruction) {
-  const matches = String(instruction || "").match(/[A-Za-z]:\\[^\s"'锛屻€傦紱;]+/g) || [];
+  const matches = String(instruction || "").match(/[A-Za-z]:\\[^\s"'\uFF0C\u3002\uFF1B;]+/g) || [];
   return matches.some((candidate) => {
     return !(config.allowedWorkspaces || []).some((allowed) => isUnder(candidate, allowed));
   });
@@ -120,13 +123,13 @@ function requiresConfirmation(task) {
     /\berase\s+/i,
     /\u5220\u9664/,
     /\u5220\u6389/,
-    /\u79fb\u9664/,
-    /\u79fb\u52a8/,
-    /\u91cd\u547d\u540d/,
-    /\u8986\u76d6/,
-    /\u66ff\u6362\u539f\u6587\u4ef6/,
-    /\u8fd0\u884c.*\u811a\u672c/,
-    /\u6267\u884c.*\u811a\u672c/,
+    /\u79FB\u9664/i,
+    /\u79FB\u52A8/i,
+    /\u91CD\u547D\u540D/i,
+    /\u8986\u76D6/i,
+    /\u66FF\u6362\u539F\u6587\u4EF6/i,
+    /\u8FD0\u884C.*\u811A\u672C/i,
+    /\u6267\u884C.*\u811A\u672C/i,
     /\brun\b.*\bscript\b/i,
     /\.ps1\b/i,
     /\.bat\b/i,
@@ -315,6 +318,110 @@ async function processTask(taskPath) {
 
   appendLog(`running ${taskPath}`);
   await reply(task.messageId, "Codex has started processing this task.");
+
+  const execution = await runCodex(task, resultMdPath);
+  const endedAt = new Date().toISOString();
+  const completed = execution.code === 0;
+
+  task.status = completed ? "completed" : "failed";
+  task.endedAt = endedAt;
+  task.exitCode = execution.code;
+  task.resultMdPath = resultMdPath;
+  writeJson(taskPath, task);
+
+  const result = {
+    status: task.status,
+    startedAt,
+    endedAt,
+    exitCode: execution.code,
+    timedOut: execution.timedOut,
+    resultMdPath,
+    stdout: execution.stdout.slice(-4000),
+    stderr: execution.stderr.slice(-4000)
+  };
+  writeJson(resultJsonPath(taskPath), result);
+
+  const summary = summaryFromResult(resultMdPath, execution.stderr || execution.stdout);
+  await reply(
+    task.messageId,
+    completed
+      ? `Codex task completed.\nResult file: ${resultMdPath}\n\n${summary}`
+      : `Codex task failed.\nExit code: ${execution.code}\nResult file: ${resultMdPath}\n\n${summary}`
+  );
+  appendLog(`${task.status} ${taskPath} code=${execution.code}`);
+}
+
+function handleTaskError(taskPath, error) {
+  appendLog(`task error ${taskPath}: ${error.stack || error}`);
+  try {
+    const task = readJson(taskPath);
+    const endedAt = new Date().toISOString();
+    task.status = "failed";
+    task.endedAt = endedAt;
+    task.exitCode = -1;
+    task.failureReason = String(error.stack || error);
+    writeJson(taskPath, task);
+    writeJson(resultJsonPath(taskPath), {
+      status: "failed",
+      startedAt: task.startedAt || null,
+      endedAt,
+      exitCode: -1,
+      resultMdPath: task.resultMdPath || null,
+      stderr: task.failureReason.slice(-4000)
+    });
+    reply(task.messageId, `Codex task failed.\nReason: ${String(error.message || error).slice(0, 800)}`).catch((replyError) => {
+      appendLog(`failure reply error ${replyError.stack || replyError}`);
+    });
+  } catch (writeError) {
+    appendLog(`failed to mark task failed ${taskPath}: ${writeError.stack || writeError}`);
+  }
+}
+
+function queuedTaskPaths() {
+  ensureDir(config.queueFolder);
+  return fs
+    .readdirSync(config.queueFolder)
+    .filter((name) => name.endsWith(".json") && !name.endsWith(".result.json"))
+    .map((name) => path.join(config.queueFolder, name))
+    .sort();
+}
+
+async function scanQueue() {
+  if (activeCount >= maxConcurrency) return;
+  for (const taskPath of queuedTaskPaths()) {
+    if (activeCount >= maxConcurrency) break;
+    let task;
+    try {
+      task = readJson(taskPath);
+    } catch {
+      continue;
+    }
+    if (task.status !== "queued") continue;
+
+    activeCount += 1;
+    processTask(taskPath)
+      .catch((error) => handleTaskError(taskPath, error))
+      .finally(() => {
+        activeCount -= 1;
+        scheduleScan();
+      });
+    break;
+  }
+}
+
+function scheduleScan() {
+  if (scanScheduled) return;
+  scanScheduled = true;
+  setTimeout(() => {
+    scanScheduled = false;
+    scanQueue().catch((error) => appendLog(`scan error ${error.stack || error}`));
+  }, 100);
+}
+
+function startWatcher() {
+  ensureDir(config.queueFolder);
+  ensureDir(config.logsFolder);
+  appendLog("starting runner");
   scanQueue().catch((error) => appendLog(`initial scan error ${error.stack || error}`));
 
   fs.watch(config.queueFolder, { persistent: true }, () => {
@@ -327,5 +434,3 @@ async function processTask(taskPath) {
 }
 
 startWatcher();
-
-
