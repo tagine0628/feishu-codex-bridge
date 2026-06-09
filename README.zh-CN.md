@@ -2,7 +2,7 @@
 
 # Feishu Codex Bridge
 
-Feishu Codex Bridge 是一个把飞书 / Lark 机器人消息转成本机 Codex CLI 任务的本地桥接工具，通过事件触发队列让 Codex 只在有真实任务时运行。
+Feishu Codex Bridge 是一个把飞书 / Lark 机器人消息转成本机 Codex CLI 任务的本地桥接工具，可以生成本地 Markdown 结果，并可选自动创建可预览、可编辑的飞书 / Lark 云文档。
 
 ## 使用 Codex 一句话辅助安装
 
@@ -28,8 +28,6 @@ Rules:
 
 ## 本地快速命令
 
-在仓库根目录中运行：
-
 ```powershell
 .\scripts\install-local.ps1
 .\scripts\doctor.ps1
@@ -38,16 +36,15 @@ Rules:
 
 ## 架构
 
-整体流程是：
-
 ```text
 飞书 / Lark 消息
   -> bridge.js
   -> bridge_queue/*.json
   -> runner.js
   -> codex exec
-  -> 结果 markdown + result json
-  -> 飞书 / Lark 回复
+  -> 本地 Markdown 结果
+  -> 可选创建飞书 / Lark 云文档
+  -> 飞书 / Lark 回复摘要和链接
 ```
 
 Codex 不再作为定时 heartbeat 巡检器使用。`runner.js` 是普通 Node.js 常驻进程，监听本地队列，只有发现真实 queued 任务时才启动 `codex exec`。
@@ -55,11 +52,11 @@ Codex 不再作为定时 heartbeat 巡检器使用。`runner.js` 是普通 Node.
 ## 模块说明
 
 - `bridge.js`：监听飞书 / Lark 事件，校验允许的发送人和触发前缀，写入任务 JSON，并回复“已入队”。
-- `runner.js`：监听 `bridge_queue`，把 queued 任务标记为 running，调用 `codex exec`，写入结果，并回复最终摘要。
+- `runner.js`：监听 `bridge_queue`，调用 `codex exec`，写入结果，可选创建飞书 / Lark 云文档，并回复最终摘要。
 - `start-all.ps1`：同时启动 bridge 和 runner，并分别写日志。
 - `ensure-all.ps1`：检查 pid 文件，发现 bridge 或 runner 未运行时自动拉起。
 - `scripts/install-local.ps1`：本地安装引导和依赖检查。
-- `scripts/doctor.ps1`：检查配置、CLI、语法、目录和进程状态。
+- `scripts/doctor.ps1`：检查配置、CLI、语法、目录、进程状态和可选 Docs 输出能力。
 - `bridge.config.example.json`：公开配置模板。复制为 `bridge.config.json` 后填写私有配置。
 
 ## 触发前缀
@@ -72,9 +69,13 @@ Codex 不再作为定时 heartbeat 巡检器使用。`runner.js` 是普通 Node.
 
 只有来自允许用户、并匹配这些前缀之一的消息会被写入队列。
 
-## 安全边界
+## 可选：自动创建飞书云文档
 
-默认安全边界比较保守：
+当 `feishuDocOutput.enabled` 设置为 `true` 时，runner 可以把 Codex 生成的 Markdown 结果自动创建为飞书 / Lark 云文档，并在飞书消息中返回可预览、可编辑的文档链接。
+
+该功能需要有效的 `lark-cli` 授权和飞书 Docs 相关权限。如果文档创建失败，Codex 任务仍保持 `completed`；失败信息会写入 result JSON 的 `feishuDoc.status = "failed"`，飞书回复也会提示“本地结果已生成，但飞书文档创建失败”。
+
+## 安全边界
 
 - 任务 prompt 会把原始工作区文件视为只读。
 - 生成结果应写入 `_codex_bridge_outputs`。
@@ -122,7 +123,16 @@ Copy-Item bridge.config.example.json bridge.config.json
   "maxConcurrency": 1,
   "taskTimeoutMinutes": 30,
   "codexSandbox": "workspace-write",
-  "runnerScanIntervalSeconds": 10
+  "runnerScanIntervalSeconds": 10,
+  "feishuDocOutput": {
+    "enabled": false,
+    "as": "user",
+    "apiVersion": "v2",
+    "docFormat": "markdown",
+    "parentToken": "",
+    "parentPosition": "my_library",
+    "maxContentChars": 24000
+  }
 }
 ```
 
@@ -130,27 +140,15 @@ Copy-Item bridge.config.example.json bridge.config.json
 
 ## 验证与启动
 
-先运行安装引导：
-
 ```powershell
 .\scripts\install-local.ps1
-```
-
-再运行诊断：
-
-```powershell
 .\scripts\doctor.ps1
-```
-
-doctor 通过后再启动：
-
-```powershell
 .\start-all.ps1
 ```
 
-## 启动
+doctor 通过后再启动 bridge 和 runner。
 
-启动 bridge 和 runner：
+## 启动
 
 ```powershell
 .\start-all.ps1
@@ -168,12 +166,11 @@ doctor 通过后再启动：
 
 ## 输出目录
 
-常见运行输出包括：
-
 - `bridge_queue/*.json`：队列任务文件。
 - `codex_runner_results/*.md`：Codex 最终回复 markdown。
-- `*.result.json`：执行元数据。
+- `*.result.json`：执行元数据，其中包含可选 `feishuDoc` 状态。
 - `bridge_logs/`：bridge 和 runner 日志。
+- 启用 Docs 输出后，飞书 / Lark 回复中会包含云文档链接。
 
 这些运行态文件都应被 Git 排除。
 
@@ -195,4 +192,4 @@ doctor 通过后再启动：
 
 ## 项目定位
 
-这个项目适合把飞书里的自然语言任务转成本机 Codex 可执行任务，尤其适合需要保留本地文件安全边界、异步处理科研资料、整理文档、跑数据清洗和生成结果摘要的场景。
+这个项目适合把飞书里的自然语言任务转成本机 Codex 可执行任务，尤其适合需要保留本地文件安全边界、异步处理科研资料、整理文档、跑数据清洗、生成结果摘要，并把结果沉淀为飞书云文档的场景。

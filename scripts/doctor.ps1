@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"
 $script:Failures = 0
 $script:Warnings = 0
 
@@ -19,6 +19,11 @@ function Fail {
   Write-Host "FAIL $Message" -ForegroundColor Red
 }
 
+function Info {
+  param([string]$Message)
+  Write-Host "INFO $Message" -ForegroundColor Cyan
+}
+
 function Test-PlaceholderPath {
   param([string]$Path)
   if (-not $Path) { return $false }
@@ -34,20 +39,27 @@ function Test-FileExists {
   if (Test-Path -LiteralPath $Path) { Pass "$Path exists" } else { Fail "$Path is missing" }
 }
 
+function Resolve-ExecutableCandidate {
+  param(
+    [string]$Name,
+    [string]$ConfiguredPath
+  )
+
+  if ($ConfiguredPath -and $ConfiguredPath.Trim().Length -gt 0 -and -not (Test-PlaceholderPath $ConfiguredPath)) {
+    return $ConfiguredPath
+  }
+  $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($cmd) { return $Name }
+  return $null
+}
+
 function Test-ExecutableVersion {
   param(
     [string]$Name,
     [string]$ConfiguredPath
   )
 
-  $candidate = $null
-  if ($ConfiguredPath -and $ConfiguredPath.Trim().Length -gt 0 -and -not (Test-PlaceholderPath $ConfiguredPath)) {
-    $candidate = $ConfiguredPath
-  } else {
-    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($cmd) { $candidate = $Name }
-  }
-
+  $candidate = Resolve-ExecutableCandidate -Name $Name -ConfiguredPath $ConfiguredPath
   if (-not $candidate) {
     Fail "$Name is not on PATH and no configured path was provided."
     return
@@ -63,6 +75,50 @@ function Test-ExecutableVersion {
     Pass "$Name version check succeeded: $output"
   } catch {
     Fail "$Name failed to run from '$candidate': $($_.Exception.Message)"
+  }
+}
+
+function Test-FeishuDocOutput {
+  param($Config)
+
+  if (-not $Config.feishuDocOutput -or $Config.feishuDocOutput.enabled -ne $true) {
+    Info "feishuDocOutput is disabled; skipping Feishu/Lark Docs checks."
+    return
+  }
+
+  Info "feishuDocOutput is enabled; checking Docs prerequisites without creating a document."
+  $as = if ($Config.feishuDocOutput.as) { [string]$Config.feishuDocOutput.as } else { "user" }
+  if ($as -ne "user" -and $as -ne "bot") {
+    Fail "feishuDocOutput.as must be 'user' or 'bot'."
+  } else {
+    Pass "feishuDocOutput.as is valid: $as"
+  }
+
+  if ($as -eq "user") {
+    Info "user mode requires you to complete: lark-cli auth login"
+  } else {
+    Info "bot mode requires the Feishu/Lark app to have Docs create/edit permissions and user authorization if required."
+  }
+
+  $candidate = Resolve-ExecutableCandidate -Name "lark-cli" -ConfiguredPath $Config.larkCliPath
+  if (-not $candidate) {
+    Fail "lark-cli is required when feishuDocOutput.enabled = true."
+    return
+  }
+  if ($candidate -ne "lark-cli" -and -not (Test-Path -LiteralPath $candidate)) {
+    Fail "lark-cli configured path does not exist: $candidate"
+    return
+  }
+
+  try {
+    $help = & $candidate docs +create --help 2>&1 | Select-Object -First 5
+    if ($LASTEXITCODE -eq 0 -or $help) {
+      Pass "lark-cli docs +create --help is available"
+    } else {
+      Fail "lark-cli docs +create --help did not return help output"
+    }
+  } catch {
+    Fail "lark-cli docs +create --help failed: $($_.Exception.Message)"
   }
 }
 
@@ -144,6 +200,7 @@ if ($config) {
 
   Test-ExecutableVersion -Name "lark-cli" -ConfiguredPath $config.larkCliPath
   Test-ExecutableVersion -Name "codex" -ConfiguredPath $config.codexCliPath
+  Test-FeishuDocOutput -Config $config
 }
 
 Write-Host ""

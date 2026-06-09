@@ -2,7 +2,7 @@
 
 # Feishu Codex Bridge
 
-Feishu Codex Bridge turns Feishu/Lark bot messages into local Codex CLI tasks through a safe event-triggered queue runner.
+Feishu Codex Bridge turns Feishu/Lark bot messages into local Codex CLI tasks, saves local Markdown results, and can optionally publish those results as editable Feishu/Lark cloud documents.
 
 ## One-prompt setup with Codex
 
@@ -28,8 +28,6 @@ Rules:
 
 ## Quick local commands
 
-For a normal local setup, run these from the repository root:
-
 ```powershell
 .\scripts\install-local.ps1
 .\scripts\doctor.ps1
@@ -38,16 +36,15 @@ For a normal local setup, run these from the repository root:
 
 ## Architecture
 
-The bridge has two long-running local processes:
-
 ```text
 Feishu/Lark message
   -> bridge.js
   -> bridge_queue/*.json
   -> runner.js
   -> codex exec
-  -> result markdown + result json
-  -> Feishu/Lark reply
+  -> local Markdown result
+  -> optional Feishu/Lark cloud document
+  -> Feishu/Lark reply with summary and links
 ```
 
 Codex is no longer used as a timer-based heartbeat poller. `runner.js` is a plain Node.js process that watches the local queue and starts `codex exec` only when a real queued task exists.
@@ -55,11 +52,11 @@ Codex is no longer used as a timer-based heartbeat poller. `runner.js` is a plai
 ## Modules
 
 - `bridge.js`: listens to Feishu/Lark events, checks allowed senders and trigger prefixes, writes task JSON files, and replies that the task was queued.
-- `runner.js`: watches `bridge_queue`, marks queued tasks as running, calls `codex exec`, writes results, and replies with a final summary.
+- `runner.js`: watches `bridge_queue`, calls `codex exec`, writes results, optionally creates a Feishu/Lark document, and replies with a final summary.
 - `start-all.ps1`: starts both bridge and runner and writes separate logs.
 - `ensure-all.ps1`: checks pid files and restarts missing bridge/runner processes.
 - `scripts/install-local.ps1`: local installation guide and dependency check.
-- `scripts/doctor.ps1`: configuration, CLI, syntax, folder, and process diagnostics.
+- `scripts/doctor.ps1`: configuration, CLI, syntax, folder, process, and optional Docs diagnostics.
 - `bridge.config.example.json`: public configuration template. Copy it to `bridge.config.json` and fill your private values.
 
 ## Trigger Prefixes
@@ -72,9 +69,13 @@ Default trigger prefixes are:
 
 Only messages from allowed senders and matching one of these prefixes are queued.
 
-## Safety Boundary
+## Optional Feishu Docs output
 
-The default safety model is intentionally conservative:
+When `feishuDocOutput.enabled` is set to `true`, the runner can create a Feishu/Lark cloud document from the Codex Markdown result and reply with the editable document URL.
+
+This requires valid `lark-cli` authentication and Docs permissions. If document creation fails, the Codex task still remains `completed`; the failure is recorded under `feishuDoc.status = "failed"` in the result JSON and the Feishu/Lark reply explains that the local result was still generated.
+
+## Safety Boundary
 
 - Original workspace files are treated as read-only by the task prompt.
 - Generated outputs should stay under `_codex_bridge_outputs`.
@@ -122,7 +123,16 @@ The private `bridge.config.json` should define at least:
   "maxConcurrency": 1,
   "taskTimeoutMinutes": 30,
   "codexSandbox": "workspace-write",
-  "runnerScanIntervalSeconds": 10
+  "runnerScanIntervalSeconds": 10,
+  "feishuDocOutput": {
+    "enabled": false,
+    "as": "user",
+    "apiVersion": "v2",
+    "docFormat": "markdown",
+    "parentToken": "",
+    "parentPosition": "my_library",
+    "maxContentChars": 24000
+  }
 }
 ```
 
@@ -130,27 +140,15 @@ Do not commit `bridge.config.json`.
 
 ## Validate and Start
 
-Run the installer helper first:
-
 ```powershell
 .\scripts\install-local.ps1
-```
-
-Then run diagnostics:
-
-```powershell
 .\scripts\doctor.ps1
-```
-
-Start bridge and runner only after doctor checks pass:
-
-```powershell
 .\start-all.ps1
 ```
 
-## Start
+Start bridge and runner only after doctor checks pass.
 
-Start both bridge and runner:
+## Start
 
 ```powershell
 .\start-all.ps1
@@ -168,14 +166,13 @@ Stop the Node.js processes that correspond to this bridge/runner installation. D
 
 ## Outputs
 
-Typical runtime outputs are:
-
 - `bridge_queue/*.json`: queued task files.
 - `codex_runner_results/*.md`: final Codex response markdown.
-- `*.result.json`: execution metadata.
+- `*.result.json`: execution metadata, including optional `feishuDoc` status.
 - `bridge_logs/`: bridge and runner logs.
+- Optional Feishu/Lark cloud document URL when Docs output is enabled.
 
-These runtime files are excluded from Git.
+Runtime files are excluded from Git.
 
 ## GitHub Hygiene
 

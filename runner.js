@@ -1,4 +1,4 @@
-﻿const { spawn } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -265,6 +265,171 @@ function summaryFromResult(resultMdPath, fallback) {
   return String(fallback || "").trim().slice(0, 1200);
 }
 
+function feishuDocOutputConfig() {
+  const cfg = config.feishuDocOutput || {};
+  return {
+    enabled: cfg.enabled === true,
+    as: cfg.as || "user",
+    apiVersion: cfg.apiVersion || "v2",
+    docFormat: cfg.docFormat || "markdown",
+    parentToken: String(cfg.parentToken || "").trim(),
+    parentPosition: String(cfg.parentPosition || "my_library").trim(),
+    maxContentChars: Math.max(1000, Number(cfg.maxContentChars || 24000))
+  };
+}
+
+function shouldCreateFeishuDoc() {
+  return feishuDocOutputConfig().enabled;
+}
+
+function readTextIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return "";
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function localTimestamp() {
+  const pad = (value) => String(value).padStart(2, "0");
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+function buildFeishuDocMarkdown(task, resultMdPath, summary) {
+  const cfg = feishuDocOutputConfig();
+  const resultMarkdown = readTextIfExists(resultMdPath).trim();
+  const instruction = String(task.instruction || "").trim();
+  const title = `# Codex task result - ${localTimestamp()}`;
+  const fullDoc = [
+    title,
+    "",
+    "> Source: Feishu Codex Bridge  ",
+    "> Status: completed  ",
+    `> Workspace: ${task.selectedWorkspace || ""}  `,
+    `> Local result file: ${resultMdPath}`,
+    "",
+    "## Original instruction",
+    "",
+    instruction || "(empty)",
+    "",
+    "## Result",
+    "",
+    resultMarkdown || summary || "(empty)"
+  ].join("\n");
+
+  if (fullDoc.length <= cfg.maxContentChars) return fullDoc;
+
+  return [
+    title,
+    "",
+    "> The result content is long. This Feishu/Lark document keeps a summary only; the complete result is saved in the local Markdown file.",
+    "",
+    "## Original instruction",
+    "",
+    instruction || "(empty)",
+    "",
+    "## Summary",
+    "",
+    summary || "(empty)",
+    "",
+    "## Local result file",
+    "",
+    resultMdPath
+  ].join("\n");
+}
+
+function runLarkDocsCreate(markdownContent) {
+  const cfg = feishuDocOutputConfig();
+  const args = [
+    "docs",
+    "+create",
+    "--api-version",
+    cfg.apiVersion,
+    "--doc-format",
+    cfg.docFormat,
+    "--content",
+    markdownContent,
+    "--format",
+    "json"
+  ];
+
+  if (cfg.as) args.push("--as", cfg.as);
+  if (cfg.parentToken) {
+    args.push("--parent-token", cfg.parentToken);
+  } else if (cfg.parentPosition) {
+    args.push("--parent-position", cfg.parentPosition);
+  }
+
+  return runLark(args);
+}
+
+function findDeep(value, predicate) {
+  if (!value || typeof value !== "object") return null;
+  if (predicate(value)) return value;
+  for (const child of Object.values(value)) {
+    const found = findDeep(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
+
+function extractFeishuDocUrl(larkResult) {
+  const text = String(larkResult && larkResult.stdout ? larkResult.stdout : "").trim();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const match = text.match(/https?:\/\/[^\s"']+/);
+    return match ? { url: match[0], documentId: null } : { url: null, documentId: null };
+  }
+
+  const document =
+    parsed?.data?.document ||
+    parsed?.document ||
+    findDeep(parsed, (node) => typeof node.url === "string" && /\/docx?\//.test(node.url));
+  const url = document?.url || parsed?.data?.url || parsed?.url || null;
+  const documentId =
+    document?.document_id ||
+    document?.documentId ||
+    document?.token ||
+    parsed?.data?.document_id ||
+    parsed?.data?.documentId ||
+    null;
+  return { url, documentId };
+}
+
+async function createFeishuDocForTask(task, resultMdPath, summary) {
+  const cfg = feishuDocOutputConfig();
+  if (!cfg.enabled) return { enabled: false };
+
+  try {
+    const markdownContent = buildFeishuDocMarkdown(task, resultMdPath, summary);
+    const larkResult = await runLarkDocsCreate(markdownContent);
+    if (larkResult.code !== 0) {
+      return {
+        enabled: true,
+        status: "failed",
+        error: String(larkResult.stderr || larkResult.stdout || `lark-cli exited with code ${larkResult.code}`).slice(0, 2000),
+        as: cfg.as
+      };
+    }
+
+    const extracted = extractFeishuDocUrl(larkResult);
+    return {
+      enabled: true,
+      status: "created",
+      url: extracted.url,
+      documentId: extracted.documentId,
+      as: cfg.as
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      status: "failed",
+      error: String(error.stack || error).slice(0, 2000),
+      as: cfg.as
+    };
+  }
+}
+
 async function markNeedsConfirmation(taskPath, task, reason) {
   const now = new Date().toISOString();
   task.status = "needs_confirmation";
@@ -322,11 +487,16 @@ async function processTask(taskPath) {
   const execution = await runCodex(task, resultMdPath);
   const endedAt = new Date().toISOString();
   const completed = execution.code === 0;
+  const summary = summaryFromResult(resultMdPath, execution.stderr || execution.stdout);
+  const feishuDoc = completed
+    ? await createFeishuDocForTask(task, resultMdPath, summary)
+    : { enabled: shouldCreateFeishuDoc(), status: "skipped" };
 
   task.status = completed ? "completed" : "failed";
   task.endedAt = endedAt;
   task.exitCode = execution.code;
   task.resultMdPath = resultMdPath;
+  task.feishuDoc = feishuDoc;
   writeJson(taskPath, task);
 
   const result = {
@@ -337,18 +507,24 @@ async function processTask(taskPath) {
     timedOut: execution.timedOut,
     resultMdPath,
     stdout: execution.stdout.slice(-4000),
-    stderr: execution.stderr.slice(-4000)
+    stderr: execution.stderr.slice(-4000),
+    feishuDoc
   };
   writeJson(resultJsonPath(taskPath), result);
 
-  const summary = summaryFromResult(resultMdPath, execution.stderr || execution.stdout);
-  await reply(
-    task.messageId,
-    completed
-      ? `Codex task completed.\nResult file: ${resultMdPath}\n\n${summary}`
-      : `Codex task failed.\nExit code: ${execution.code}\nResult file: ${resultMdPath}\n\n${summary}`
-  );
-  appendLog(`${task.status} ${taskPath} code=${execution.code}`);
+  let replyText;
+  if (!completed) {
+    replyText = `Codex task failed.\nExit code: ${execution.code}\nLocal result file: ${resultMdPath}\n\n${summary}`;
+  } else if (feishuDoc.enabled && feishuDoc.status === "created") {
+    replyText = `Codex task completed.\nFeishu doc: ${feishuDoc.url || "created, but no URL was returned"}\nLocal result file: ${resultMdPath}\n\n${summary}`;
+  } else if (feishuDoc.enabled && feishuDoc.status === "failed") {
+    replyText = `Codex task completed, but Feishu doc creation failed.\nLocal result file: ${resultMdPath}\nReason: ${feishuDoc.error || "unknown error"}\n\n${summary}`;
+  } else {
+    replyText = `Codex task completed.\nLocal result file: ${resultMdPath}\n\n${summary}`;
+  }
+
+  await reply(task.messageId, replyText);
+  appendLog(`${task.status} ${taskPath} code=${execution.code} feishuDoc=${feishuDoc.status || "disabled"}`);
 }
 
 function handleTaskError(taskPath, error) {

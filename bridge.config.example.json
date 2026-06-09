@@ -17,5 +17,14 @@
   "maxConcurrency": 1,
   "taskTimeoutMinutes": 30,
   "codexSandbox": "workspace-write",
-  "runnerScanIntervalSeconds": 10
+  "runnerScanIntervalSeconds": 10,
+  "feishuDocOutput": {
+    "enabled": false,
+    "as": "user",
+    "apiVersion": "v2",
+    "docFormat": "markdown",
+    "parentToken": "",
+    "parentPosition": "my_library",
+    "maxContentChars": 24000
+  }
 }

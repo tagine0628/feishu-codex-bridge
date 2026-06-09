@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"
 
 function Write-Step {
   param([string]$Message)
@@ -86,6 +86,11 @@ Write-Host "Complete authentication yourself with commands such as:"
 Write-Host "  lark-cli config init"
 Write-Host "  lark-cli auth login"
 Write-Host "  codex login"
+Write-Host ""
+Write-Host "Optional Feishu/Lark Docs output:" -ForegroundColor Cyan
+Write-Host "  - Set feishuDocOutput.enabled = true to let runner create a Feishu/Lark cloud document from the Codex Markdown result."
+Write-Host "  - This requires lark-cli auth login for user mode, or Docs creation/edit permissions for bot mode."
+Write-Host "  - Do not store App Secret, tokens, or other credentials in this repository."
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Edit .\bridge.config.json"
