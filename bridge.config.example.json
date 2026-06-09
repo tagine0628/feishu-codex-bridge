@@ -1,5 +1,5 @@
 {
-  "triggerPrefixes": ["codex:", "Codex\uff1a", "\u6267\u884c:"],
+  "triggerPrefixes": ["codex:", "Codex:", "Codex\uff1a", "execute:", "\u6267\u884c:"],
   "ignorePrefixes": ["\u95f2\u804a:", "\u95f2\u804a\uff1a", "ignore:", "Ignore:"],
   "allowedSenderOpenIds": ["ou_xxx_replace_with_allowed_user_open_id"],
   "defaultWorkspace": "F:\\your_workspace",
