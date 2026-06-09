@@ -66,6 +66,36 @@ The intended safety model is:
 - deleting, moving, renaming, overwriting original files, out-of-scope paths, and unknown script execution are marked as `needs_confirmation`;
 - `resultMdPath` must be under the task's `outputRoot`.
 
+## One-prompt setup with Codex
+
+This is not a fully unattended installer. You still need to create your own Feishu/Lark app, complete `lark-cli` authentication, complete Codex authentication, and provide your local workspace paths and allowed sender `open_id`.
+
+You can give another Codex session this prompt:
+
+```text
+Clone this repository and help me install Feishu Codex Bridge on Windows.
+
+Repository:
+https://github.com/<your-github-username>/feishu-codex-bridge
+
+Rules:
+- Do not ask for or store my GitHub password, GitHub token, Feishu App Secret, OpenAI token, or any credential.
+- Let me complete browser/CLI authentication myself.
+- Run scripts/install-local.ps1 first.
+- Help me fill bridge.config.json using my local paths and Feishu open_id.
+- Run scripts/doctor.ps1.
+- Start bridge and runner with start-all.ps1 only after doctor passes.
+- Do not modify original files outside _codex_bridge_outputs.
+```
+
+Normal local setup:
+
+```powershell
+.\scripts\install-local.ps1
+.\scripts\doctor.ps1
+.\start-all.ps1
+```
+
 ## Setup
 
 Install prerequisites:
@@ -74,7 +104,13 @@ Install prerequisites:
 - `lark-cli`
 - OpenAI Codex CLI
 
-Copy the example config:
+Run the local installer first:
+
+```powershell
+.\scripts\install-local.ps1
+```
+
+Then copy the example config manually if the installer has not already created it:
 
 ```powershell
 Copy-Item bridge.config.example.json bridge.config.json
@@ -118,6 +154,14 @@ Important fields:
 - `taskTimeoutMinutes`: default `30`.
 - `codexSandbox`: default `workspace-write`.
 - `runnerScanIntervalSeconds`: default `10`.
+
+## Validate and Start
+
+Run doctor before starting:
+
+```powershell
+.\scripts\doctor.ps1
+```
 
 ## Start
 
@@ -184,3 +228,4 @@ Do not commit local runtime files or private config:
 - task JSON files
 - `.result.json` files
 - `node_modules/`
+
