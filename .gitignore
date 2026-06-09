@@ -1,0 +1,30 @@
+﻿# Local private config
+bridge.config.json
+*.local.json
+.env
+.env.*
+
+# Runtime state
+*.pid
+*.log
+*.stdout.log
+*.stderr.log
+
+# Bridge outputs
+_codex_bridge_outputs/
+bridge_queue/
+bridge_logs/
+codex_runner_results/
+*.result.json
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

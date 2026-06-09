@@ -1,0 +1,21 @@
+{
+  "triggerPrefixes": ["codex:", "Codex\uff1a", "\u6267\u884c:"],
+  "ignorePrefixes": ["\u95f2\u804a:", "\u95f2\u804a\uff1a", "ignore:", "Ignore:"],
+  "allowedSenderOpenIds": ["ou_xxx_replace_with_allowed_user_open_id"],
+  "defaultWorkspace": "F:\\your_workspace",
+  "allowedWorkspaces": [
+    "F:\\your_workspace",
+    "F:\\another_allowed_workspace",
+    "E:\\optional_allowed_workspace"
+  ],
+  "outputFolderName": "_codex_bridge_outputs",
+  "queueFolder": "F:\\your_workspace\\_codex_bridge_outputs\\bridge_queue",
+  "logsFolder": "F:\\your_workspace\\_codex_bridge_outputs\\bridge_logs",
+  "eventKey": "im.message.receive_v1",
+  "larkCliPath": "F:\\path\\to\\lark-cli.exe",
+  "codexCliPath": "codex",
+  "maxConcurrency": 1,
+  "taskTimeoutMinutes": 30,
+  "codexSandbox": "workspace-write",
+  "runnerScanIntervalSeconds": 10
+}
