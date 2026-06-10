@@ -90,11 +90,15 @@ codex: 总结这份 Markdown，上传飞书文档
 
 ```json
 "feishuDocOutput": {
-  "enabled": true,
+  "enabled": false,
   "mode": "on_demand",
   "triggerKeywords": ["飞书文档", "云文档", "生成文档", "创建文档", "上传飞书", "Feishu doc", "Feishu docs", "doc", "docs"],
   "as": "user",
-  "parentPosition": "my_library"
+  "apiVersion": "v2",
+  "docFormat": "markdown",
+  "parentToken": "",
+  "parentPosition": "my_library",
+  "maxContentChars": 24000
 }
 ```
 
