@@ -1,4 +1,4 @@
-﻿const { spawn } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");

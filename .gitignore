@@ -1,4 +1,4 @@
-﻿# Local private config
+# Local private config
 bridge.config.json
 bridge.config.backup.*.json
 *.local.json
