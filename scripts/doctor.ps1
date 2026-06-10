@@ -168,7 +168,7 @@ Test-FileExists ".\bridge.config.example.json"
 $config = $null
 if (Test-Path -LiteralPath ".\bridge.config.json") {
   try {
-    $config = Get-Content -LiteralPath ".\bridge.config.json" -Raw | ConvertFrom-Json
+    $config = Get-Content -LiteralPath ".\bridge.config.json" -Raw -Encoding UTF8 | ConvertFrom-Json
     Pass "bridge.config.json parses as JSON"
   } catch {
     Fail "bridge.config.json is not valid JSON: $($_.Exception.Message)"

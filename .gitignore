@@ -1,5 +1,6 @@
 ﻿# Local private config
 bridge.config.json
+bridge.config.backup.*.json
 *.local.json
 .env
 .env.*
@@ -9,6 +10,7 @@ bridge.config.json
 *.log
 *.stdout.log
 *.stderr.log
+seen_message_ids.json
 
 # Bridge outputs
 _codex_bridge_outputs/

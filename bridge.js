@@ -1,6 +1,7 @@
 ﻿const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const root = __dirname;
 const configPath = path.join(root, "bridge.config.json");
@@ -9,6 +10,41 @@ const larkCliExe = config.larkCliPath || "lark-cli";
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+// --- MessageId dedup ---
+const seenIdsFile = path.join(config.logsFolder || path.join(root, "_codex_bridge_outputs", "bridge_logs"), "seen_message_ids.json");
+let seenMessageIds = new Set();
+
+function loadSeenIds() {
+  try {
+    if (fs.existsSync(seenIdsFile)) {
+      const data = JSON.parse(fs.readFileSync(seenIdsFile, "utf8"));
+      if (Array.isArray(data)) {
+        seenMessageIds = new Set(data.slice(-5000));
+      }
+    }
+  } catch (e) {
+    appendLog(`seen_ids load failed: ${e.message}`);
+  }
+}
+
+function saveSeenIds() {
+  try {
+    ensureDir(path.dirname(seenIdsFile));
+    fs.writeFileSync(seenIdsFile, JSON.stringify([...seenMessageIds].slice(-5000), null, 2), "utf8");
+  } catch (e) {
+    appendLog(`seen_ids save failed: ${e.message}`);
+  }
+}
+
+function isDuplicateMessage(messageId) {
+  if (!messageId) return false;
+  if (seenMessageIds.has(messageId)) return true;
+  seenMessageIds.add(messageId);
+  // Save asynchronously — don't block event processing
+  setImmediate(() => saveSeenIds());
+  return false;
 }
 
 function nowStamp() {
@@ -26,7 +62,12 @@ function appendLog(line) {
 
 function bridgeEnv() {
   const env = { ...process.env };
-  const pathEntries = [env.Path || env.PATH || ""]; if (path.isAbsolute(larkCliExe)) pathEntries.push(path.dirname(larkCliExe)); env.Path = pathEntries.filter(Boolean).join(";"); delete env.PATH;
+  const pathEntries = [env.Path || env.PATH || ""];
+  if (path.isAbsolute(larkCliExe)) pathEntries.push(path.dirname(larkCliExe));
+  // Support FEISHU_CODEX_NPM_GLOBAL env var for npm global path
+  if (env.FEISHU_CODEX_NPM_GLOBAL) pathEntries.push(env.FEISHU_CODEX_NPM_GLOBAL);
+  env.Path = pathEntries.filter(Boolean).join(";");
+  delete env.PATH;
   env.LARK_CLI_NO_PROXY = "1";
   env.LANG = "zh_CN.UTF-8";
   env.LC_ALL = "zh_CN.UTF-8";
@@ -112,7 +153,13 @@ function isAllowedSender(senderId) {
 }
 
 function taskFileName(event) {
-  const id = event.event_id || event.message_id || Math.random().toString(36).slice(2);
+  // Deterministic filename from messageId to prevent duplicate task files
+  if (event.message_id) {
+    const hash = crypto.createHash("sha256").update(String(event.message_id)).digest("hex").slice(0, 12);
+    return `feishu_${hash}.json`;
+  }
+  // Fallback for messages without messageId
+  const id = event.event_id || Math.random().toString(36).slice(2);
   return `${nowStamp()}_${id.replace(/[^\w.-]/g, "_")}.json`;
 }
 
@@ -149,13 +196,20 @@ async function handleEvent(event) {
     return;
   }
   if (event.message_type && event.message_type !== "text" && event.message_type !== "post") {
-    await reply(event.message_id || event.id, "Codex bridge currently accepts text messages only.");
+    await reply(event.message_id || event.id, "Codex bridge 目前只接收文本消息。");
     return;
   }
 
   const instruction = stripTrigger(String(event.content || "").trim());
   if (!instruction) {
     appendLog(`ignored non-trigger message=${event.message_id || ""}`);
+    return;
+  }
+
+  // Dedup by messageId — if already seen, silently ignore
+  const msgId = event.message_id || event.id;
+  if (isDuplicateMessage(msgId)) {
+    appendLog(`duplicate message ignored: ${msgId}`);
     return;
   }
 
@@ -166,18 +220,27 @@ async function handleEvent(event) {
 
   const task = buildTask(event, instruction, workspace);
   const filePath = path.join(config.queueFolder, taskFileName(event));
+
+  // If task file already exists (deterministic filename from messageId), also treat as duplicate
+  if (fs.existsSync(filePath)) {
+    appendLog(`duplicate task file skipped: ${filePath}`);
+    return;
+  }
+
   fs.writeFileSync(filePath, JSON.stringify(task, null, 2), "utf8");
   appendLog(`queued ${filePath}`);
 
   await reply(
     event.message_id || event.id,
-    `Codex task queued.\nWorkspace: ${workspace}\nOutput root: ${outputRoot}\nRule: original files are read-only; generated files must stay under _codex_bridge_outputs.`
-  );}
+    `已收到 Codex 任务，正在处理。\n工作区：${workspace}\n输出目录：${outputRoot}`
+  );
+}
 
 function startConsumer() {
   ensureDir(config.queueFolder);
   ensureDir(config.logsFolder);
-  appendLog("starting bridge");
+  loadSeenIds();
+  appendLog(`starting bridge (${seenMessageIds.size} seen messageIds loaded)`);
 
   const child = spawn(
     larkCliExe,

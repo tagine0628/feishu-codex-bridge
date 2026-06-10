@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
 $bridgeRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $nodePath = if ($env:FEISHU_CODEX_NODE_PATH) { $env:FEISHU_CODEX_NODE_PATH } else { "node" }
@@ -23,27 +23,60 @@ foreach ($name in @(
   Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 
-$bridge = Start-Process `
-  -FilePath $nodeExe `
-  -ArgumentList @(Join-Path $bridgeRoot "bridge.js") `
-  -WorkingDirectory $bridgeRoot `
-  -WindowStyle Hidden `
-  -RedirectStandardOutput (Join-Path $bridgeRoot "bridge.stdout.log") `
-  -RedirectStandardError (Join-Path $bridgeRoot "bridge.stderr.log") `
-  -PassThru
+function Test-NodeScriptRunning {
+  param([string]$PidFile, [string]$ScriptName)
+  # Check pid file first
+  if (Test-Path -LiteralPath $PidFile) {
+    $rawPid = (Get-Content -LiteralPath $PidFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if ($rawPid -match '^\d+$') {
+      $proc = Get-Process -Id ([int]$rawPid) -ErrorAction SilentlyContinue
+      if ($proc) { return $proc }
+    }
+  }
+  # Fallback: scan command lines
+  $found = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*feishu-codex-bridge*" -and $_.CommandLine -like "*$ScriptName*" } |
+    Select-Object -First 1
+  if ($found) {
+    Set-Content -LiteralPath $PidFile -Value $found.ProcessId -Encoding ASCII
+  }
+  return $found
+}
 
-$runner = Start-Process `
-  -FilePath $nodeExe `
-  -ArgumentList @(Join-Path $bridgeRoot "runner.js") `
-  -WorkingDirectory $bridgeRoot `
-  -WindowStyle Hidden `
-  -RedirectStandardOutput (Join-Path $bridgeRoot "runner.stdout.log") `
-  -RedirectStandardError (Join-Path $bridgeRoot "runner.stderr.log") `
-  -PassThru
+# --- Bridge ---
+$bridgePidFile = Join-Path $bridgeRoot "bridge.pid"
+$existingBridge = Test-NodeScriptRunning -PidFile $bridgePidFile -ScriptName "bridge.js"
+if ($existingBridge) {
+  $bid = if ($existingBridge.PSObject.Properties.Name -contains "ProcessId") { $existingBridge.ProcessId } else { $existingBridge.Id }
+  "existing bridge found: $bid"
+} else {
+  $bridge = Start-Process `
+    -FilePath $nodeExe `
+    -ArgumentList @(Join-Path $bridgeRoot "bridge.js") `
+    -WorkingDirectory $bridgeRoot `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $bridgeRoot "bridge.stdout.log") `
+    -RedirectStandardError (Join-Path $bridgeRoot "bridge.stderr.log") `
+    -PassThru
+  Set-Content -LiteralPath $bridgePidFile -Value $bridge.Id -Encoding ASCII
+  "starting bridge: $($bridge.Id)"
+}
 
-Set-Content -LiteralPath (Join-Path $bridgeRoot "bridge.pid") -Value $bridge.Id -Encoding ASCII
-Set-Content -LiteralPath (Join-Path $bridgeRoot "runner.pid") -Value $runner.Id -Encoding ASCII
-
-"Bridge started: $($bridge.Id)"
-"Runner started: $($runner.Id)"
-
+# --- Runner ---
+$runnerPidFile = Join-Path $bridgeRoot "runner.pid"
+$existingRunner = Test-NodeScriptRunning -PidFile $runnerPidFile -ScriptName "runner.js"
+if ($existingRunner) {
+  $rid = if ($existingRunner.PSObject.Properties.Name -contains "ProcessId") { $existingRunner.ProcessId } else { $existingRunner.Id }
+  "existing runner found: $rid"
+} else {
+  $runner = Start-Process `
+    -FilePath $nodeExe `
+    -ArgumentList @(Join-Path $bridgeRoot "runner.js") `
+    -WorkingDirectory $bridgeRoot `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $bridgeRoot "runner.stdout.log") `
+    -RedirectStandardError (Join-Path $bridgeRoot "runner.stderr.log") `
+    -PassThru
+  Set-Content -LiteralPath $runnerPidFile -Value $runner.Id -Encoding ASCII
+  "starting runner: $($runner.Id)"
+}

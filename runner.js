@@ -149,17 +149,24 @@ function buildPrompt(task) {
     "Natural-language instruction:",
     task.instruction || "",
     "",
+    "Output language: reply in the same language as the instruction (e.g. if the instruction is in Chinese, reply in Chinese).",
+    "",
     "Safety rules:",
     "- Original files inside allowedWorkspaces are read-only.",
     `- Create or edit files only under: ${task.outputRoot}`,
     "- Never delete, move, rename, or overwrite existing original files.",
     "- If the instruction is unclear, destructive, or out of scope, do not execute it; explain what confirmation is needed.",
-    "- Preserve the user's natural-language instruction when describing the work.",
+    "",
+    "Feishu/Lark Docs policy — do NOT mention this in your output:",
+    "- You MUST NOT call lark-cli, lark-cli docs +create, or any Feishu/Lark API.",
+    "- Your only job is to generate the Markdown file content.",
+    "- Whether a Feishu/Lark cloud document is created is decided by the runner after you finish.",
+    "- Do NOT write meta-commentary like \"I did not call lark-cli\" or \"the runner will create a document\" in your output.",
     "",
     "Allowed workspaces:",
     ...(task.allowedWorkspaces || config.allowedWorkspaces || []).map((workspace) => `- ${workspace}`),
     "",
-    "Return a concise final summary of what you did, where outputs were written, and any limitations."
+    "Final output: a concise summary of what you did, where outputs were written, and any limitations. Do not include meta-commentary about the bridge infrastructure."
   ].join("\n");
 }
 
@@ -342,20 +349,37 @@ function buildFeishuDocMarkdown(task, resultMdPath, summary) {
   const cfg = feishuDocOutputConfig();
   const resultMarkdown = readTextIfExists(resultMdPath).trim();
   const instruction = String(task.instruction || "").trim();
-  const title = `# Codex task result - ${localTimestamp()}`;
+  const isChinese = /[一-鿿]/.test(instruction);
+
+  const title = isChinese
+    ? `# Codex 任务结果 - ${localTimestamp()}`
+    : `# Codex task result - ${localTimestamp()}`;
+
+  const sourceLabel = isChinese ? "来源" : "Source";
+  const statusLabel = isChinese ? "状态" : "Status";
+  const workspaceLabel = isChinese ? "工作区" : "Workspace";
+  const resultLabel = isChinese ? "本地结果文件" : "Local result file";
+  const instructionLabel = isChinese ? "原始指令" : "Original instruction";
+  const resultContentLabel = isChinese ? "结果" : "Result";
+  const longNotice = isChinese
+    ? "结果内容较长。此飞书/Lark 文档仅保留摘要，完整结果保存于本地 Markdown 文件。"
+    : "The result content is long. This Feishu/Lark document keeps a summary only; the complete result is saved in the local Markdown file.";
+  const summaryLabel = isChinese ? "摘要" : "Summary";
+  const completedLabel = isChinese ? "已完成" : "completed";
+
   const fullDoc = [
     title,
     "",
-    "> Source: Feishu Codex Bridge  ",
-    "> Status: completed  ",
-    `> Workspace: ${task.selectedWorkspace || ""}  `,
-    `> Local result file: ${resultMdPath}`,
+    `> ${sourceLabel}: Feishu Codex Bridge  `,
+    `> ${statusLabel}: ${completedLabel}  `,
+    `> ${workspaceLabel}: ${task.selectedWorkspace || ""}  `,
+    `> ${resultLabel}: ${resultMdPath}`,
     "",
-    "## Original instruction",
+    `## ${instructionLabel}`,
     "",
     instruction || "(empty)",
     "",
-    "## Result",
+    `## ${resultContentLabel}`,
     "",
     resultMarkdown || summary || "(empty)"
   ].join("\n");
@@ -365,17 +389,17 @@ function buildFeishuDocMarkdown(task, resultMdPath, summary) {
   return [
     title,
     "",
-    "> The result content is long. This Feishu/Lark document keeps a summary only; the complete result is saved in the local Markdown file.",
+    `> ${longNotice}`,
     "",
-    "## Original instruction",
+    `## ${instructionLabel}`,
     "",
     instruction || "(empty)",
     "",
-    "## Summary",
+    `## ${summaryLabel}`,
     "",
     summary || "(empty)",
     "",
-    "## Local result file",
+    `## ${resultLabel}`,
     "",
     resultMdPath
   ].join("\n");
@@ -530,7 +554,8 @@ async function processTask(taskPath) {
   }
 
   appendLog(`running ${taskPath}`);
-  await reply(task.messageId, "Codex has started processing this task.");
+  // Started reply disabled to reduce noise — only reply on enqueue and completion
+  // await reply(task.messageId, "Codex has started processing this task.");
 
   const execution = await runCodex(task, resultMdPath);
   const endedAt = new Date().toISOString();
